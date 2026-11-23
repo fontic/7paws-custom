@@ -219,6 +219,55 @@ function buildBody() {
 const chest = add(torso, ball(1, M.patch, 0.3, 0.5, 0.16), 0, 1.22, 0.4);
 const hindFeet = [-1, 1].map(s => { const g = new THREE.Group(); g.position.set(s * 0.6, 0.1, 0.25); cat.add(g); const rim = add(g, ball(1, M.line, 0.216, 0.118, 0.325), 0, -0.012, 0.022); const foot = add(g, ball(1, M.patch, 0.2, 0.11, 0.31), 0, 0, 0); foot.renderOrder = 1; rim.renderOrder = 0; return g; });
 
+/* ---------- hind paws: the space bar is kicked with a hind foot, not struck with a forepaw ---------- */
+const HIND = { i: 1, state: 'idle', t0: 0, from: V(0, 0, 0), to: V(0, 0, 0), key: null, base: null, bounce: 0 };
+const hindFeetBase = [];
+const hindReach = k => (k ? V(k.x, 0.13, k.z - 0.17) : V(0.28, 0.13, 0.85));
+function startHindKick(k, t) {
+  if (!HIND.base) { hindFeet.forEach(g => hindFeetBase.push(g.position.clone())); HIND.base = hindFeetBase; }
+  if (HIND.state === 'hold') { HIND.bounce = t; if (k) k.glow = 1; S.jolt = t; return; }
+  if (HIND.state === 'reach' || HIND.state === 'press') return;
+  HIND.i = Math.random() < 0.5 ? 0 : 1;
+  HIND.from.copy(hindFeet[HIND.i].position);
+  HIND.to.copy(hindReach(k)); HIND.key = k || null;
+  HIND.state = 'reach'; HIND.t0 = t;
+  S.nextTailJoin = 0;                                   // the tail comes along for the kick
+}
+function hindPress(t) {
+  const k = HIND.key;
+  if (k) { k.glow = 1; if (showKeyLabels) { addChip(k); if (!k.down) { const c = S.chips[S.chips.length - 1]; if (c) setTimeout(() => c.gone = performance.now(), 160); } } }
+  HIND.state = 'hold';
+  S.thump = 1; S.thumpSide = HIND.i ? 1 : -1; S.jolt = t; S.bounceAt = t;
+  S.tailBurstLen = rnd(900, 1500); S.tailBurstUntil = t + S.tailBurstLen; S.nextTailJoin = t + rnd(2600, 5200);
+  if (HIND.releasePending) { HIND.releasePending = false; releaseHind(); }
+}
+function releaseHind() {
+  if (HIND.state === 'idle' || HIND.state === 'return') return;
+  if (HIND.state === 'hold') { HIND.from.copy(hindFeet[HIND.i].position); HIND.state = 'return'; HIND.t0 = performance.now(); }
+  else HIND.releasePending = true;              // let the kick finish landing, then head back
+}
+function updateHind(t) {
+  if (HIND.state === 'idle') return;
+  const g = hindFeet[HIND.i], base = HIND.base[HIND.i];
+  if (HIND.state === 'reach') {                         // slide out from under the belly, toward the space bar
+    const k = clamp((t - HIND.t0) / 130, 0, 1), e = k * k * (3 - 2 * k);
+    g.position.set(mix(HIND.from.x, HIND.to.x, e), mix(HIND.from.y, HIND.to.y, e) + Math.sin(k * Math.PI) * 0.06, mix(HIND.from.z, HIND.to.z, e));
+    if (k >= 1) { HIND.to.set(HIND.to.x, 0.27, HIND.to.z + 0.14); HIND.t0 = t; HIND.state = 'press'; }
+  } else if (HIND.state === 'press') {                  // lunge up onto the keycap
+    const k = clamp((t - HIND.t0) / 70, 0, 1), e = 1 - (1 - k) ** 3;
+    g.position.set(mix(HIND.from.x, HIND.to.x, e), mix(HIND.from.y, HIND.to.y, e), mix(HIND.from.z, HIND.to.z, e));
+    if (k >= 1) { HIND.from.copy(HIND.to); hindPress(t); }
+  } else if (HIND.state === 'hold') {                   // planted on the bar; a re-kick bounces in place
+    const b = HIND.bounce && t - HIND.bounce < 240 ? Math.max(0, Math.sin((t - HIND.bounce) / 240 * Math.PI)) : 0;
+    g.position.set(HIND.to.x, HIND.to.y - 0.02 - 0.05 * b, HIND.to.z + 0.02 + 0.03 * b);
+    if (HIND.bounce && t - HIND.bounce >= 240) { HIND.bounce = 0; if (HIND.key) HIND.key.glow = 1; S.jolt = t; }
+  } else if (HIND.state === 'return') {                 // hop back under the belly
+    const k = clamp((t - HIND.t0) / 260, 0, 1), e = k * k * (3 - 2 * k);
+    g.position.set(mix(HIND.from.x, base.x, e), mix(HIND.from.y, base.y, e) + Math.sin(k * Math.PI) * 0.08, mix(HIND.from.z, base.z, e));
+    if (k >= 1) { HIND.state = 'idle'; g.position.copy(base); }
+  }
+}
+
 const HEAD_R = [0.86, 0.66, 0.7];
 upper.matrixAutoUpdate = false;                              // the chest leans by shearing, so its base never leaves the desk
 const headFix = new THREE.Group(); headFix.matrixAutoUpdate = false; upper.add(headFix);   // undoes the shear so the head keeps its shape
@@ -407,11 +456,15 @@ $('btnCopy').onclick = () => { const out = $('shapeOut'), note = $('copied'); ou
 const RISE = 30, FALL = 46, STRIKE = RISE + FALL;
 const S = { last: performance.now(), lastKey: -1e9, lastMouse: -1e9, lastInput: performance.now(), sleepAt: 0, down: new Map(), thump: 0, thumpSide: 0, jolt: -1e9, rate: 0,
   turn: 0, nod: 0, tilt: 0, lid: 0, blinkAt: performance.now() + 2500, blinkUntil: 0, happyUntil: 0, bounceAt: -1e9, act: null, actUntil: 0, nextAct: performance.now() + 6000,
-  gazeX: 0, gazeY: 0, pointer: null, phase: 0, lastSide: 'L', alt: 'L', spin: 0, spinning: false, mouseDown: false, wigX: 0, wigZ: 0, lidDir: 1, mouseLean: 0, sx: 0, fwd: 0, fwdGoal: 0, demoMouse: 0, chips: [] };
+  gazeX: 0, gazeY: 0, pointer: null, phase: 0, lastSide: 'L', alt: 'L', spin: 0, spinning: false, mouseDown: false, wigX: 0, wigZ: 0, lidDir: 1, mouseLean: 0, sx: 0, fwd: 0, fwdGoal: 0, demoMouse: 0, chips: [],
+  tailBurstUntil: 0, tailBurstLen: 0, nextTailJoin: 0, annoyUntil: 0, nextAnnoy: 0, annoySince: 0 };
 const sleeping = t => S.sleepAt && t > S.sleepAt;
 if (VIEW.get('eyes') === 'shut') { S.blinkUntil = 1e13; S.blinkAt = 1e14; } if (VIEW.get('eyes') === 'happy') S.happyUntil = 1e13; if (VIEW.get('coat')) setTimeout(() => setCoat(+VIEW.get('coat')), 0); if (VIEW.get('wall')) setTimeout(() => setWall(+VIEW.get('wall')), 0);   // preview switches
 let SLEEP_AFTER = VIEW.get('sleep') ? +VIEW.get('sleep') * 1000 : (options.sleepMinutes || 5) * 60000;              // falls asleep by itself after this long without keys or mouse
 const zzz = document.createElement('div'); zzz.className = 'zzz'; zzz.innerHTML = '<span>Z</span><span>Z</span><span>Z</span>'; stageEl.appendChild(zzz);
+const anger = document.createElement('div'); anger.textContent = '💢';
+anger.style.cssText = 'position:absolute;pointer-events:none;user-select:none;opacity:0;transform:translate(-50%,-90%);filter:drop-shadow(0 1px 2px rgba(255,255,255,.55));';
+stageEl.appendChild(anger);
 const wake = t => { if (S.sleepAt) { S.sleepAt = 0; S.blinkUntil = t + 320; S.blinkAt = t + 620; S.wokeAt = t; S.bounceAt = t + 150; } S.lastInput = t; };
 
 function land(p, t) {
@@ -428,14 +481,21 @@ function strike(side, x, z, t, key) {
 function keyDown(code, t = performance.now()) {
   if (S.down.has(code)) return; wake(t);
   const k = keys.get(code); let side, x, z;
-  side = code === 'Space' && t - S.lastMouse < 1600 ? (MOUSE_PAW === 'L' ? 'R' : 'L') : pawFor(code);
-  if (k) { x = k.x; z = k.z; if (code === 'Space') x += (side === 'L' ? -1 : 1) * 0.3; } else { x = (side === 'L' ? -1 : 1) * 0.8; z = KB.z0 + 0.55; }
+  if (code === 'Space') {                       // the space bar is the hind paws' job
+    S.down.set(code, 'H'); S.lastKey = t; lastStrikeAt = t;
+    S.rate = Math.min(12, S.rate + 1); S.lastSide = Math.random() < 0.5 ? 'L' : 'R';
+    if (k) { k.down = true; k.glow = 1; }       // the key answers at once; the foot is on its way
+    startHindKick(k, t); return;
+  }
+  side = pawFor(code);
+  if (k) { x = k.x; z = k.z; } else { x = (side === 'L' ? -1 : 1) * 0.8; z = KB.z0 + 0.55; }
   S.down.set(code, side); strike(side, x, z, t, k); paws[side].held = 1;
 }
 function keyUp(code) {
   const side = S.down.get(code); if (!side) return; S.down.delete(code);
   const k = keys.get(code); if (k) k.down = false;
-  if (![...S.down.values()].includes(side)) paws[side].held = 0;
+  if (side === 'H') releaseHind();
+  else if (![...S.down.values()].includes(side)) paws[side].held = 0;
   const c = S.chips.find(c => c.code === code && !c.gone); if (c) c.gone = performance.now();
 }
 function addChip(k) { const el = document.createElement('div'); el.className = 'chip'; el.textContent = k.label; stageEl.appendChild(el); S.chips.push({ el, k, code: k.code, born: performance.now(), gone: 0 }); }
@@ -497,7 +557,15 @@ function frame() {
   const mouseOn = mouseGroup.visible && t - S.lastMouse < 1600 && !asleep, mousing = mouseGroup.visible && t - S.lastMouse < 2200 && S.lastMouse > S.lastKey && !asleep;   // paw on the mouse / whole attention on the mouse
   S.wigX *= Math.exp(-dt * 5); S.wigZ *= Math.exp(-dt * 5); S.mouseLean += ((mousing ? 1 : 0) - S.mouseLean) * ease(6);
   mouseGroup.position.set(MOUSE_AT.x + (DESK_DIR > 0 ? Math.min(S.wigX, 0.05) : Math.max(S.wigX, -0.05)), 0, MOUSE_AT.z + S.wigZ); mouseBody.material.color.copy(capColor).lerp(hitColor, S.mouseDown && mouseOn ? 1 : 0);
-  S.rate *= Math.exp(-dt * 1.2); const fast = 0;   // 0 = unhurried typing, 1 = hammering away
+  S.rate *= Math.exp(-dt * 1.2); const fast = clamp((S.rate - 2.4) / 5.2, 0, 1);   // 0 = unhurried typing, 1 = hammering away
+  // impatience: keep hammering long enough and the cat gets visibly fed up
+  const annoyK = S.annoyUntil && t < S.annoyUntil ? Math.min(1, Math.sin((1 - (S.annoyUntil - t) / 1600) * Math.PI) * 2) : 0;
+  if (fast > 0.55) { if (!S.annoySince) S.annoySince = t; if (t - S.annoySince > 2000 && t > S.nextAnnoy) { S.annoyUntil = t + 1600; S.nextAnnoy = t + 6000; S.annoySince = t; S.thump = Math.max(S.thump, 0.7); S.thumpSide = Math.random() < 0.5 ? -1 : 1; } }
+  else S.annoySince = 0;
+  // every so often the tail joins the typing, drumming along in rhythm
+  if (typing && !asleep) { if (!S.nextTailJoin) S.nextTailJoin = t + rnd(1500, 4000); if (t > S.nextTailJoin) { S.tailBurstLen = rnd(900, 1600); S.tailBurstUntil = t + S.tailBurstLen; S.nextTailJoin = t + rnd(2800, 6200) * (fast > 0.5 ? 0.55 : 1); } }
+  const bp = typing && !asleep && S.tailBurstUntil > t ? S.tailBurstLen - (S.tailBurstUntil - t) : 0;
+  const tailJoin = bp > 0 ? Math.min(1, bp / 200, (S.tailBurstUntil - t) / 350) : 0;
   S.thump *= Math.exp(-dt * 13);
 
   if (dead) return;
@@ -530,8 +598,8 @@ function frame() {
   S.sx += (clamp(reach * 0.13, -0.2, 0.2) - DESK_DIR * S.mouseLean * 0.24 - S.sx) * ease(9);
   const sx = S.sx + S.thump * S.thumpSide * 0.012 + (crouch ? Math.sin(t / 55) * 0.02 : 0), fwd = S.fwd;
   upper.matrix.set(1, sx, 0, 0,  0, 1 - fwd * fwd * 0.35, 0, 0,  0, fwd, 1, 0,  0, 0, 0, 1);
-  S.tailDown = (S.tailDown || 0) + ((asleep ? 1 : 0) - (S.tailDown || 0)) * ease(2.6); poseTail(S.tailDown < 0.003 ? 0 : S.tailDown > 0.997 ? 1 : S.tailDown, flicking ? Math.sin(t / 85) * Math.sin(clamp(1 - actLeft / 1400, 0, 1) * Math.PI) : crouch ? Math.sin(t / 60) * 0.5 : 0);
-  tail.rotation.z = Math.sin(t / 900) * 0.05 * (1 - S.tailDown) + (typing ? Math.sin(t / (160 - 70 * fast)) * (0.02 + 0.07 * fast) : 0);
+  S.tailDown = (S.tailDown || 0) + ((asleep ? 1 : 0) - (S.tailDown || 0)) * ease(2.6); poseTail(S.tailDown < 0.003 ? 0 : S.tailDown > 0.997 ? 1 : S.tailDown, (flicking ? Math.sin(t / 85) * Math.sin(clamp(1 - actLeft / 1400, 0, 1) * Math.PI) : crouch ? Math.sin(t / 60) * 0.5 : 0) + tailJoin * Math.sin(t / 75) * 0.85 + annoyK * Math.sin(t / 58) * 1.1);
+  tail.rotation.z = Math.sin(t / 900) * 0.05 * (1 - S.tailDown) + (typing ? Math.sin(t / (160 - 70 * fast)) * (0.02 + 0.07 * fast) : 0) + tailJoin * Math.sin(t / 75) * 0.05 + annoyK * Math.sin(t / 58) * 0.07;
 
   // head
   const happy = t < S.happyUntil, calm = !typing && !asleep && !happy && !mousing;
@@ -546,10 +614,10 @@ function frame() {
   const nodT = asleep ? 0.5 : yawning ? -0.3 * yawn : crouch ? 0.16 : happy ? -0.12 : licking ? 0.34 + Math.sin(t / 140) * 0.09 : stretching ? -0.18 : looking ? 0.3 : follow ? clamp(pdy * 0.5, -0.28, 0.4) : mousing ? 0.22 : S.pointer && !typing ? clamp(S.pointer.y * 0.2, -0.16, 0.2) : 0, tiltT = asleep ? 0.16 : licking ? -0.12 : S.act === 'tilt' ? 0.2 : happy ? (S.petSide || -1) * 0.1 + Math.sin(t / 330) * 0.06 : 0;
   S.turn += (turnT - S.turn) * ease(7); S.nod += (nodT - S.nod) * ease(6); S.tilt += (tiltT - S.tilt) * ease(5);
   { const w = (t - (S.wokeAt || -1e9)) / 750; S.shake = w > 0.15 && w < 1 ? Math.sin(w * 26) * 0.16 * (1 - w) : 0; }
-  head.rotation.set(S.nod + S.thump * (0.05 + 0.05 * fast), S.turn + S.shake, S.tilt); head.position.z = 0.1 - fwd * 0.5 + 0.3 * loaf; head.position.y = (2.3 * P.bodyH + P.neck) * (1 - 0.43 * loaf - 0.16 * S.low) + breath * 0.018 + bounce * 0.09 - (asleep ? 0.14 : 0) - S.thump * 0.02;
+  head.rotation.set(S.nod + S.thump * (0.05 + 0.05 * fast), S.turn + S.shake + Math.sin(t / 42) * 0.035 * annoyK, S.tilt); head.position.z = 0.1 - fwd * 0.5 + 0.3 * loaf; head.position.y = (2.3 * P.bodyH + P.neck) * (1 - 0.43 * loaf - 0.16 * S.low) + breath * 0.018 + bounce * 0.09 - (asleep ? 0.14 : 0) - S.thump * 0.02;
   { const py = head.position.y; headFix.matrix.set(1, -sx, 0, sx * py,  0, 1, 0, 0,  0, -fwd, 1, fwd * py,  0, 0, 0, 1); }
   const flick = S.act === 'ear' ? Math.sin((S.actUntil - t) / 420 * Math.PI * 2) * 0.28 : 0;
-  { const relax = S.lidDir < 0 ? 0.2 * smooth(0.5, 1, S.lid) : 0; ears[0].rotation.z = 0.24 + relax + flick; ears[1].rotation.z = -0.24 - relax - flick * 0.5; ears[0].rotation.x = ears[1].rotation.x = -0.32 * fast; }
+  { const relax = S.lidDir < 0 ? 0.2 * smooth(0.5, 1, S.lid) : 0; ears[0].rotation.z = 0.24 + relax + flick; ears[1].rotation.z = -0.24 - relax - flick * 0.5; ears[0].rotation.x = ears[1].rotation.x = -0.32 * fast - 0.30 * annoyK; }
 
   // eyes
   if (t > S.blinkAt) { S.blinkUntil = t + 130; S.blinkAt = t + rnd(2600, 5600); }
@@ -592,11 +660,15 @@ function frame() {
     shoulderW.copy(SHOULDER[side]); shoulderW.x += sx * shoulderW.y; shoulderW.z += fwd * shoulderW.y; shoulderW.y = shoulderW.y * (1 - fwd * fwd * 0.35) * squat + breath * 0.02 + bounce * 0.06; drawLimb(p, shoulderW);
   }
 
+  updateHind(t);
+
   renderer.render(scene, camera);
   // labels above the keys that were hit
   tongue.visible = licking && paws.R.mode === 'lick'; if (tongue.visible) { const k = Math.sin(t / 140); tongue.position.y = -0.38 - 0.05 * k; tongue.scale.set(0.06, 0.085 + 0.03 * k, 0.04); }
   mouth.visible = yawn > 0.04; if (mouth.visible) fillPatch(mouth, 0, -0.29 - 0.05 * yawn, 0.03 + 0.085 * yawn, 0.01 + 0.14 * yawn, 0, 0.012);
   zzz.style.display = asleep ? 'block' : 'none';
+  anger.style.display = annoyK > 0.05 ? 'block' : 'none';
+  if (annoyK > 0.05) { anger.style.fontSize = (w * 0.055) + 'px'; head.getWorldPosition(proj); proj.x += 0.02; proj.y += 0.55; proj.project(camera); anger.style.left = ((proj.x + 1) / 2 * w) + 'px'; anger.style.top = ((1 - proj.y) / 2 * h) + 'px'; anger.style.opacity = String(Math.min(1, annoyK * 1.4)); anger.style.transform = `translate(-50%,-90%) scale(${1 + 0.18 * Math.sin(t / 90)}) rotate(${Math.sin(t / 140) * 14}deg)`; }
   if (asleep) { head.getWorldPosition(proj); proj.x += 0.5; proj.y += 0.5; proj.project(camera); zzz.style.left = ((proj.x + 1) / 2 * w) + 'px'; zzz.style.top = ((1 - proj.y) / 2 * h) + 'px'; }
   S.chips = S.chips.filter(c => { const out = c.gone ? (t - c.gone) / 240 : 0; if (out >= 1) { c.el.remove(); return false; }
     proj.set(c.k.x, 0.75, c.k.z).project(camera); c.el.style.left = ((proj.x + 1) / 2 * w) + 'px'; c.el.style.top = ((1 - proj.y) / 2 * h - out * 8) + 'px'; c.el.style.opacity = String(Math.min(1, (t - c.born) / 80) * (1 - out)); return true; });
@@ -677,6 +749,6 @@ return {
   clear() { [...S.down.keys()].forEach(keyUp); shownKeys = new Set(); downAt.clear(); buttonsDown = 0; buttonsAt = 0; S.mouseDown = false; },
   state() { const t = performance.now(); return sleeping(t) ? 'sleeping' : S.pet || t < S.happyUntil ? 'petting' : t - S.lastKey < 3000 ? 'typing' : mouseGroup.visible && t - S.lastMouse < 2200 ? 'mouse' : 'idle'; },
   fastForwardToSleep() { S.sleepAt = performance.now(); S.lastKey = S.lastMouse = -1e9; },
-  destroy() { dead = true; clearInterval(letGo); cancelAnimationFrame(raf); offs.forEach(f => f()); S.chips.forEach(c => c.el.remove()); zzz.remove(); renderer.domElement.remove(); renderer.dispose(); },
+  destroy() { dead = true; clearInterval(letGo); cancelAnimationFrame(raf); offs.forEach(f => f()); S.chips.forEach(c => c.el.remove()); zzz.remove(); anger.remove(); renderer.domElement.remove(); renderer.dispose(); },
 };
 };
