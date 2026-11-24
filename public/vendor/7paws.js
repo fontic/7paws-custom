@@ -372,7 +372,7 @@ const AX = V(1, 0, 0), AZ = V(0, 0, 1);
 const tailCurve = new THREE.CatmullRomCurve3([V(0.3, 0.36, -0.75), V(0.82, 0.2, -0.64), V(1.16, 0.3, -0.5), V(1.3, 0.58, -0.42), V(1.46, 0.8, -0.37), V(1.66, 0.87, -0.35)], false, 'catmullrom', 0.5);
 const tail = makeSausage(M.tail, 1); cat.add(tail);
 let TAIL_K = 1, tailPuff = -1;
-const buildTail = k => { TAIL_K = k; shapeSausage(tail, tailCurve, t => 0.16 * TAIL_K * (1 + 0.7 * (1 - smooth(0, 0.16, t)) ** 2) * (1 + 0.55 * Math.max(0, tailPuff)), AZ); };
+const buildTail = k => { TAIL_K = k; shapeSausage(tail, tailCurve, t => 0.16 * TAIL_K * (1 + 0.7 * (1 - smooth(0, 0.16, t)) ** 2), AZ); };
 buildTail(1);
 // Asleep, the tail comes down and lies curled on the desk beside the body.
 const TAIL_UP = tailCurve.points.map(q => q.clone()), TAIL_DOWN = [V(0.3, 0.36, -0.75), V(0.84, 0.15, -0.62), V(1.22, 0.12, -0.42), V(1.44, 0.12, -0.1), V(1.46, 0.12, 0.26), V(1.3, 0.12, 0.52)];
@@ -423,14 +423,62 @@ function drawHindLeg(i) {
   shapeSausage(L.rim, hindCurve, t => r(t) + 0.02 + 0.016 * (1 - out), AZ);
 }
 
-/* ---------- puff-up fur: tufts along the spine and flanks that grow out when the cat is furious ---------- */
-const puffSpikes = new THREE.Group(); cat.add(puffSpikes); puffSpikes.visible = false;
-{ const spikeGeo = new THREE.ConeGeometry(0.055, 0.18, 6);
-  [[0.5, 1, -0.32], [0.85, 1.18, -0.3], [1.15, 1.12, -0.3], [1.45, 1.22, -0.34], [1.72, 1.12, -0.4], [1.95, 0.92, -0.46]].forEach(([y, sc, tilt], n) => {
-    const sp = new THREE.Mesh(spikeGeo, M.fur); sp.position.set(n % 2 ? 0.14 : -0.14, y, midZ(y) - 0.03); sp.rotation.x = tilt; sp.rotation.z = (n % 2 ? 1 : -1) * 0.3; sp.userData.s = sc; puffSpikes.add(sp); });
-  [-1, 1].forEach(sd => [0.7, 1.1, 1.5].forEach((y, n) => {
-    const sp = new THREE.Mesh(spikeGeo, M.fur); sp.position.set(sd * halfW(y) * 0.98, y, midZ(y)); sp.rotation.z = sd * -1.2; sp.rotation.x = 0.3; sp.userData.s = 0.72 + 0.12 * n; puffSpikes.add(sp); }));
+/* ---------- puff-up fur, Tom-and-Jerry style: a starburst of stiff tufts PINNED to every moving part ---------- */
+// Each set hangs off the part it decorates (torso / head / tail), so the tufts lean, breathe, bob and swing with it.
+const spikeGeo = new THREE.ConeGeometry(1, 1, 4);              // a 4-sided pyramid: jagged like hand-drawn fur
+const mkSpikes = parent => { const g = new THREE.Group(); parent.add(g); g.visible = false; return g; };
+const torsoSpikes = mkSpikes(torso), headSpikes = mkSpikes(head), tailSpikes = mkSpikes(tail);
+const YAX = V(0, 1, 0);
+const addSpike = (set, pos, dir, len, r, stag) => { const sp = new THREE.Mesh(spikeGeo, M.fur);
+  sp.position.copy(pos).addScaledVector(dir, len * 0.34);       // base buried in the coat, tip standing free
+  sp.quaternion.setFromUnitVectors(YAX, dir); sp.userData = { r, len, stag }; set.add(sp); return sp; };
+{ // the trunk: rings of tufts around the whole silhouette, alternating long and short
+  let i = 0;
+  const put = (y, phi) => {
+    const rx = halfW(y) * 1.04, rz = Math.max(0.3, halfD(y)) * 1.04, cx = Math.cos(phi), szz = Math.sin(phi);
+    const dir = V(cx / rx, y > 1.05 ? 0.26 : 0.08, szz / rz - (szz < 0 ? 0.22 : 0)).normalize();
+    const v = 0.88 + 0.24 * ((i * 37) % 7) / 6, long = i % 2 === 0;
+    addSpike(torsoSpikes, V(cx * rx, y, midZ(y) + szz * rz), dir, (long ? 0.52 : 0.3) * v, (long ? 0.075 : 0.056) * v, long ? 0 : 0.45); i++;
+  };
+  [[0.3, [0.22, Math.PI - 0.22, Math.PI * 1.5 - 0.5, Math.PI * 1.5 + 0.5]],
+   [0.65, [0, Math.PI, Math.PI / 2 - 0.4, Math.PI / 2 + 0.4, Math.PI * 1.5 - 0.35, Math.PI * 1.5 + 0.35]],
+   [1.05, [0, Math.PI, Math.PI / 2 + 0.6, Math.PI * 1.5 - 0.5, Math.PI * 1.5 + 0.5]],
+   [1.45, [0.15, Math.PI - 0.15, Math.PI * 1.5 - 0.7, Math.PI * 1.5 + 0.7]],
+   [1.8, [0, Math.PI, Math.PI * 1.5]]].forEach(([y, as]) => as.forEach(a => put(y, a)));
+  // a pair of tufts standing straight up off the shoulders, so the top edge bristles too
+  [[-1, 1.9], [1, 1.9]].forEach(([sx, y], i) => {
+    const dir = V(sx * 0.25, 1, -0.12).normalize();
+    addSpike(torsoSpikes, V(sx * halfW(y) * 0.62, y, midZ(y) + 0.05), dir, 0.42, 0.07, i ? 0.45 : 0);
+  });
 }
+{ // the head: a crown and ruff of tufts, kept clear of the ears, eyes and whiskers
+  let i = 0;
+  [[0, 1, -0.2], [0.42, 0.86, -0.42], [-0.42, 0.86, -0.42], [0.2, 0.98, -0.55], [-0.2, 0.98, -0.55], [0.62, 0.72, -0.5], [-0.62, 0.72, -0.5], [1, 0.3, -0.25], [-1, 0.3, -0.25], [0.55, 0.08, -0.9], [-0.55, 0.08, -0.9], [0, 0.5, -1], [0.92, -0.32, 0.05], [-0.92, -0.32, 0.05]].forEach(([x, y, z]) => {
+    const k = 1 / Math.sqrt((x / HEAD_R[0]) ** 2 + (y / HEAD_R[1]) ** 2 + (z / HEAD_R[2]) ** 2);
+    const dir = V(x / HEAD_R[0] ** 2, y / HEAD_R[1] ** 2 + (y > 0.4 ? 0.5 : 0.15), z / HEAD_R[2] ** 2).normalize();
+    const long = i % 2 === 0;
+    addSpike(headSpikes, V(x * k, y * k, z * k), dir, (long ? 0.44 : 0.3) * (0.9 + 0.2 * ((i * 29) % 5) / 4), long ? 0.06 : 0.046, long ? 0 : 0.45); i++;
+  });
+}
+const tsP = V(0, 0, 0), tsT = V(0, 0, 0), tsD = V(0, 0, 0), tsPerp = V(0, 0, 0);
+{ let i = 0; while (i < 16) { const long = i % 2 === 0, v = 0.9 + 0.2 * ((i * 31) % 5) / 4;
+    const sp = new THREE.Mesh(spikeGeo, M.fur);
+    sp.userData = { r: (long ? 0.065 : 0.05) * v, len: (long ? 0.52 : 0.34) * v, stag: long ? 0 : 0.45, side: i % 2 ? 1 : -1, up: i % 3 === 0 ? 0.55 : 0.15 };
+    tailSpikes.add(sp); i++; }
+}
+function poseTailSpikes() {                     // the tail curve moves every frame, so its tufts ride along
+  const n = tailSpikes.children.length;
+  tailSpikes.children.forEach((sp, i) => {
+    const u = sp.userData, uu = 0.28 + 0.67 * i / Math.max(1, n - 1);
+    tailCurve.getPoint(uu, tsP); tailCurve.getTangent(uu, tsT);
+    tsPerp.set(tsT.y, -tsT.x, 0).normalize();   // perpendicular in the screen plane, so the brush reads from the camera
+    tsD.copy(tsPerp).multiplyScalar(u.side); tsD.y = tsD.y * 0.3 + u.up; tsD.normalize();
+    const rad = 0.16 * TAIL_K * (1 + 0.7 * (1 - smooth(0, 0.16, uu)) ** 2);   // the tail's own radius, puff included in TAIL_K
+    sp.position.copy(tsP).addScaledVector(tsD, rad + u.len * 0.24);
+    sp.quaternion.setFromUnitVectors(YAX, tsD);
+  });
+}
+poseTailSpikes();
 
 /* ---------- a yarn ball to bat around when there is nothing better to do ---------- */
 const yarn = new THREE.Group(); scene.add(yarn); yarn.visible = false;
@@ -628,7 +676,7 @@ function frame() {
   if (pouncing && actLeft <= 520 && !S.pounced) { S.pounced = true; S.bounceAt = t; } if (!pouncing) S.pounced = false;
   S.loaf = (S.loaf || 0) + ((act0 === 'loaf' ? 1 : 0) - (S.loaf || 0)) * ease(3.2); S.low = (S.low || 0) + ((stretching ? 1 : crouch ? 0.55 : 0) - (S.low || 0)) * ease(crouch ? 9 : 5);
   const loaf = S.loaf, squat = 1 - 0.4 * loaf - 0.16 * S.low;       // a loaf settles down onto the desk; a stretch dips the chest
-  torso.scale.set(P.bodyW * (1 + 0.14 * loaf + breath * (0.012 + 0.012 * loaf) - bounce * 0.03) * (1 + 0.13 * puff), P.bodyH * squat * (1 + breath * 0.012 + bounce * 0.05 - S.thump * (0.012 + 0.02 * fast)) * (1 + 0.08 * puff), (1 + 0.1 * loaf + breath * 0.02) * (1 + 0.13 * puff));   // furious: the whole body puffs up
+  torso.scale.set(P.bodyW * (1 + 0.14 * loaf + breath * (0.012 + 0.012 * loaf) - bounce * 0.03) * (1 + 0.17 * puff), P.bodyH * squat * (1 + breath * 0.012 + bounce * 0.05 - S.thump * (0.012 + 0.02 * fast)) * (1 + 0.1 * puff), (1 + 0.1 * loaf + breath * 0.02) * (1 + 0.17 * puff));   // furious: the whole body puffs up
   // The body leans toward what the paws are doing, so the arms keep their length instead of stretching.
   let farZ = 0; for (const sd of ['L', 'R']) { const q = paws[sd]; if (q.held || t - q.tapAt < 260) farZ = Math.max(farZ, q.to.z); }
   if (farZ) S.fwdGoal = clamp(0.14 + (farZ - KB.z0) * 0.32, 0.14, 0.42);
@@ -655,7 +703,7 @@ function frame() {
   head.rotation.set(S.nod + S.thump * (0.05 + 0.05 * fast), S.turn + S.shake + Math.sin(t / 42) * 0.035 * annoyK, S.tilt); head.position.z = 0.1 - fwd * 0.5 + 0.3 * loaf; head.position.y = (2.3 * P.bodyH + P.neck) * (1 - 0.43 * loaf - 0.16 * S.low) + breath * 0.018 + bounce * 0.09 - (asleep ? 0.14 : 0) - S.thump * 0.02;
   { const py = head.position.y; headFix.matrix.set(1, -sx, 0, sx * py,  0, 1, 0, 0,  0, -fwd, 1, fwd * py,  0, 0, 0, 1); }
   const flick = S.act === 'ear' ? Math.sin((S.actUntil - t) / 420 * Math.PI * 2) * 0.28 : 0;
-  { const relax = S.lidDir < 0 ? 0.2 * smooth(0.5, 1, S.lid) : 0; ears[0].rotation.z = 0.24 + relax + flick; ears[1].rotation.z = -0.24 - relax - flick * 0.5; ears[0].rotation.x = ears[1].rotation.x = -0.32 * fast - 0.42 * annoyK; }
+  { const relax = S.lidDir < 0 ? 0.2 * smooth(0.5, 1, S.lid) : 0; ears[0].rotation.z = 0.24 + relax + flick; ears[1].rotation.z = -0.24 - relax - flick * 0.5; ears[0].rotation.x = ears[1].rotation.x = -0.32 * fast - 0.42 * annoyK - 0.28 * puff; }
 
   // eyes
   if (t > S.blinkAt) { S.blinkUntil = t + 130; S.blinkAt = t + rnd(2600, 5600); }
@@ -716,9 +764,17 @@ function frame() {
 
   updateHind(t);
   drawHindLeg(0); drawHindLeg(1);
-  puffSpikes.visible = puff > 0.02;
-  if (puffSpikes.visible) puffSpikes.children.forEach(sp => sp.scale.setScalar(sp.userData.s * (0.2 + 0.8 * puff)));
-  if (Math.abs(puff - tailPuff) > 0.02) { tailPuff = puff; buildTail(P.tailThick * (1 + 0.55 * puff)); }
+  if (Math.abs(puff - tailPuff) > 0.02) { tailPuff = puff; buildTail(P.tailThick * (1 + 1.2 * puff)); }   // the tail becomes a bottle brush
+  const showPuff = puff > 0.02;
+  torsoSpikes.visible = headSpikes.visible = tailSpikes.visible = showPuff;
+  if (showPuff) {                                       // tufts pop out in two waves, then tremble with rage
+    let i = 0;
+    poseTailSpikes();
+    for (const set of [torsoSpikes, headSpikes, tailSpikes]) for (const sp of set.children) {
+      const u = sp.userData, g = smooth(u.stag, u.stag + 0.55, puff);
+      sp.scale.set(u.r * g, u.len * g * (1 + 0.11 * Math.sin(t / 23 + i * 2.1) * (reduceMotion ? 0 : 1)), u.r * g); i++;
+    }
+  }
 
   renderer.render(scene, camera);
   // labels above the keys that were hit
@@ -726,7 +782,7 @@ function frame() {
   mouth.visible = yawn > 0.04; if (mouth.visible) fillPatch(mouth, 0, -0.29 - 0.05 * yawn, 0.03 + 0.085 * yawn, 0.01 + 0.14 * yawn, 0, 0.012);
   zzz.style.display = asleep ? 'block' : 'none';
   anger.style.display = annoyK > 0.12 ? 'block' : 'none';
-  if (annoyK > 0.12) { anger.style.fontSize = (w * (0.038 + 0.034 * annoyK)) + 'px'; head.getWorldPosition(proj); proj.x += 0.02; proj.y += 0.55 + 0.12 * puff; proj.project(camera); anger.style.left = ((proj.x + 1) / 2 * w) + 'px'; anger.style.top = ((1 - proj.y) / 2 * h) + 'px'; anger.style.opacity = String(Math.min(1, annoyK * 1.5)); anger.style.transform = `translate(-50%,-90%) scale(${(1 + 0.18 * Math.sin(t / 90)) * (1 + 0.45 * puff)}) rotate(${Math.sin(t / 140) * (12 + 16 * annoyK)}deg)`; }
+  if (annoyK > 0.12) { anger.style.fontSize = (w * (0.038 + 0.034 * annoyK)) + 'px'; head.getWorldPosition(proj); proj.x += 0.02; proj.y += 0.82 + 0.15 * puff; proj.project(camera); anger.style.left = ((proj.x + 1) / 2 * w) + 'px'; anger.style.top = ((1 - proj.y) / 2 * h) + 'px'; anger.style.opacity = String(Math.min(1, annoyK * 1.5)); anger.style.transform = `translate(-50%,-90%) scale(${(1 + 0.18 * Math.sin(t / 90)) * (1 + 0.45 * puff)}) rotate(${Math.sin(t / 140) * (12 + 16 * annoyK)}deg)`; }
   if (asleep) { head.getWorldPosition(proj); proj.x += 0.5; proj.y += 0.5; proj.project(camera); zzz.style.left = ((proj.x + 1) / 2 * w) + 'px'; zzz.style.top = ((1 - proj.y) / 2 * h) + 'px'; }
   S.chips = S.chips.filter(c => { const out = c.gone ? (t - c.gone) / 240 : 0; if (out >= 1) { c.el.remove(); return false; }
     proj.set(c.k.x, 0.75, c.k.z).project(camera); c.el.style.left = ((proj.x + 1) / 2 * w) + 'px'; c.el.style.top = ((1 - proj.y) / 2 * h - out * 8) + 'px'; c.el.style.opacity = String(Math.min(1, (t - c.born) / 80) * (1 - out)); return true; });
