@@ -87,11 +87,15 @@ body {
 body.settings-body .menu {
   position: fixed;
   top: 0;
-  bottom: 0;
+  bottom: auto;
   left: calc(50% - 122px);
   width: 244px;
   max-width: none;
-  max-height: none;
+  /* Height follows the content instead of stretching to the viewport: even if the
+     webview's viewport is stale (hidden-created windows on Windows), nothing at
+     the bottom of the menu can be pushed outside the window. */
+  height: auto;
+  max-height: 100vh;
   box-shadow: none;
 }
 

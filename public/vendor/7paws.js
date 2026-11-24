@@ -248,13 +248,13 @@ function releaseHind() {
 }
 function updateHind(t) {
   if (HIND.state === 'idle') return;
-  const g = hindFeet[HIND.i], base = HIND.base[HIND.i];
+  const g = hindFeet[HIND.i], base = HIND.base[HIND.i], spd = 1 + 0.5 * (S.annoy || 0);   // the angrier, the snappier the kick
   if (HIND.state === 'reach') {                         // slide out from under the belly, toward the space bar
-    const k = clamp((t - HIND.t0) / 130, 0, 1), e = k * k * (3 - 2 * k);
+    const k = clamp((t - HIND.t0) * spd / 130, 0, 1), e = k * k * (3 - 2 * k);
     g.position.set(mix(HIND.from.x, HIND.to.x, e), mix(HIND.from.y, HIND.to.y, e) + Math.sin(k * Math.PI) * 0.06, mix(HIND.from.z, HIND.to.z, e));
     if (k >= 1) { HIND.to.set(HIND.to.x, 0.27, HIND.to.z + 0.14); HIND.t0 = t; HIND.state = 'press'; }
   } else if (HIND.state === 'press') {                  // lunge up onto the keycap
-    const k = clamp((t - HIND.t0) / 70, 0, 1), e = 1 - (1 - k) ** 3;
+    const k = clamp((t - HIND.t0) * spd / 70, 0, 1), e = 1 - (1 - k) ** 3;
     g.position.set(mix(HIND.from.x, HIND.to.x, e), mix(HIND.from.y, HIND.to.y, e), mix(HIND.from.z, HIND.to.z, e));
     if (k >= 1) { HIND.from.copy(HIND.to); hindPress(t); }
   } else if (HIND.state === 'hold') {                   // planted on the bar; a re-kick bounces in place
@@ -262,7 +262,7 @@ function updateHind(t) {
     g.position.set(HIND.to.x, HIND.to.y - 0.02 - 0.05 * b, HIND.to.z + 0.02 + 0.03 * b);
     if (HIND.bounce && t - HIND.bounce >= 240) { HIND.bounce = 0; if (HIND.key) HIND.key.glow = 1; S.jolt = t; }
   } else if (HIND.state === 'return') {                 // hop back under the belly
-    const k = clamp((t - HIND.t0) / 260, 0, 1), e = k * k * (3 - 2 * k);
+    const k = clamp((t - HIND.t0) * spd / 260, 0, 1), e = k * k * (3 - 2 * k);
     g.position.set(mix(HIND.from.x, base.x, e), mix(HIND.from.y, base.y, e) + Math.sin(k * Math.PI) * 0.08, mix(HIND.from.z, base.z, e));
     if (k >= 1) { HIND.state = 'idle'; g.position.copy(base); }
   }
@@ -371,8 +371,8 @@ const AX = V(1, 0, 0), AZ = V(0, 0, 1);
 // Tail: starts inside the hip so it grows out of the body, thick at the root and tapering to a round tip.
 const tailCurve = new THREE.CatmullRomCurve3([V(0.3, 0.36, -0.75), V(0.82, 0.2, -0.64), V(1.16, 0.3, -0.5), V(1.3, 0.58, -0.42), V(1.46, 0.8, -0.37), V(1.66, 0.87, -0.35)], false, 'catmullrom', 0.5);
 const tail = makeSausage(M.tail, 1); cat.add(tail);
-let TAIL_K = 1;
-const buildTail = k => { TAIL_K = k; shapeSausage(tail, tailCurve, t => 0.16 * TAIL_K * (1 + 0.7 * (1 - smooth(0, 0.16, t)) ** 2), AZ); };
+let TAIL_K = 1, tailPuff = -1;
+const buildTail = k => { TAIL_K = k; shapeSausage(tail, tailCurve, t => 0.16 * TAIL_K * (1 + 0.7 * (1 - smooth(0, 0.16, t)) ** 2) * (1 + 0.55 * Math.max(0, tailPuff)), AZ); };
 buildTail(1);
 // Asleep, the tail comes down and lies curled on the desk beside the body.
 const TAIL_UP = tailCurve.points.map(q => q.clone()), TAIL_DOWN = [V(0.3, 0.36, -0.75), V(0.84, 0.15, -0.62), V(1.22, 0.12, -0.42), V(1.44, 0.12, -0.1), V(1.46, 0.12, 0.26), V(1.3, 0.12, 0.52)];
@@ -405,6 +405,43 @@ function drawLimb(p, shoulder) {
   shapeSausage(p.core, curve, legRadius, AX); shapeSausage(p.rim, curve, rimRadius, AX);
   p.root.position.copy(shoulder); p.root.scale.setScalar(legRadius(0) * 1.02);
 }
+
+/* ---------- hind legs: a sausage from inside the rump to each hind foot, so the space-bar kick shows a whole leg ---------- */
+const hindLegs = [-1, 1].map(() => { const rim = makeSausage(M.line, 1), core = makeSausage(M.fur, 2); scene.add(rim, core); return { rim, core }; });
+const hHip = V(0, 0, 0), hFoot = V(0, 0, 0), hindCurve = new THREE.QuadraticBezierCurve3(V(0, 0, 0), V(0, 0, 0), V(0, 0, 0));
+function drawHindLeg(i) {
+  const s = i ? 1 : -1, L = hindLegs[i];
+  hHip.set(s * 0.46 * P.bodyW, 0.34, -0.46);                       // deep inside the rump (cat-local)
+  hFoot.copy(hindFeet[i].position); hFoot.y += 0.012; hFoot.z += 0.05;
+  hHip.z += 0.08; hFoot.z += 0.08;                                 // the cat group sits at z = 0.08; sausages live in world space
+  const dx = hFoot.x - hHip.x, dz = hFoot.z - hHip.z;
+  hindCurve.v0.copy(hHip); hindCurve.v2.copy(hFoot);
+  hindCurve.v1.set(hHip.x + dx * 0.52 + s * 0.05, mix(hHip.y, hFoot.y, 0.42) - 0.02, hHip.z + dz * 0.5 + 0.12);
+  const out = smooth(0.3, 0.62, Math.hypot(dx, dz));               // the further the paw reaches, the slimmer the leg looks
+  const r = t => 0.115 * P.legThick * mix(1.3, 0.72, smooth(0, 0.85, t)) * mix(1, 0.7, out);
+  shapeSausage(L.core, hindCurve, r, AZ);
+  shapeSausage(L.rim, hindCurve, t => r(t) + 0.02 + 0.016 * (1 - out), AZ);
+}
+
+/* ---------- puff-up fur: tufts along the spine and flanks that grow out when the cat is furious ---------- */
+const puffSpikes = new THREE.Group(); cat.add(puffSpikes); puffSpikes.visible = false;
+{ const spikeGeo = new THREE.ConeGeometry(0.055, 0.18, 6);
+  [[0.5, 1, -0.32], [0.85, 1.18, -0.3], [1.15, 1.12, -0.3], [1.45, 1.22, -0.34], [1.72, 1.12, -0.4], [1.95, 0.92, -0.46]].forEach(([y, sc, tilt], n) => {
+    const sp = new THREE.Mesh(spikeGeo, M.fur); sp.position.set(n % 2 ? 0.14 : -0.14, y, midZ(y) - 0.03); sp.rotation.x = tilt; sp.rotation.z = (n % 2 ? 1 : -1) * 0.3; sp.userData.s = sc; puffSpikes.add(sp); });
+  [-1, 1].forEach(sd => [0.7, 1.1, 1.5].forEach((y, n) => {
+    const sp = new THREE.Mesh(spikeGeo, M.fur); sp.position.set(sd * halfW(y) * 0.98, y, midZ(y)); sp.rotation.z = sd * -1.2; sp.rotation.x = 0.3; sp.userData.s = 0.72 + 0.12 * n; puffSpikes.add(sp); }));
+}
+
+/* ---------- a yarn ball to bat around when there is nothing better to do ---------- */
+const yarn = new THREE.Group(); scene.add(yarn); yarn.visible = false;
+const yarnSpin = new THREE.Group(); yarn.add(yarnSpin);
+{ const core = new THREE.Mesh(new THREE.SphereGeometry(0.155, 24, 18), flat('#e2725b')); yarnSpin.add(core);
+  const wrapMat = flat('#f6d9c4'), wrapGeo = new THREE.TorusGeometry(0.153, 0.012, 6, 40);
+  [[0.9, 0.35, 0.2], [-0.5, 1.1, 0.9], [0.3, -0.7, 1.6], [1.4, 0.5, -0.6]].forEach(([rx, ry, rz]) => { const w = new THREE.Mesh(wrapGeo, wrapMat); w.rotation.set(rx, ry, rz); yarnSpin.add(w); });
+  const thread = new THREE.CatmullRomCurve3([V(0.1, -0.05, 0.1), V(0.34, -0.13, 0.3), V(0.2, -0.148, 0.5), V(0.42, -0.14, 0.64)]);
+  yarn.add(new THREE.Mesh(new THREE.TubeGeometry(thread, 24, 0.008, 5), wrapMat)); }
+const yarnHome = V(0.78, 0.155, 0.62);                 // beside the batting paw, clear of the keyboard's front edge; x follows the desk direction
+let yarnKick = -1e9;
 
 /* ---------- coats and backgrounds ---------- */
 const COATS = [
@@ -457,7 +494,7 @@ const RISE = 30, FALL = 46, STRIKE = RISE + FALL;
 const S = { last: performance.now(), lastKey: -1e9, lastMouse: -1e9, lastInput: performance.now(), sleepAt: 0, down: new Map(), thump: 0, thumpSide: 0, jolt: -1e9, rate: 0,
   turn: 0, nod: 0, tilt: 0, lid: 0, blinkAt: performance.now() + 2500, blinkUntil: 0, happyUntil: 0, bounceAt: -1e9, act: null, actUntil: 0, nextAct: performance.now() + 6000,
   gazeX: 0, gazeY: 0, pointer: null, phase: 0, lastSide: 'L', alt: 'L', spin: 0, spinning: false, mouseDown: false, wigX: 0, wigZ: 0, lidDir: 1, mouseLean: 0, sx: 0, fwd: 0, fwdGoal: 0, demoMouse: 0, chips: [],
-  tailBurstUntil: 0, tailBurstLen: 0, nextTailJoin: 0, annoyUntil: 0, nextAnnoy: 0, annoySince: 0 };
+  tailBurstUntil: 0, tailBurstLen: 0, nextTailJoin: 0, annoy: 0, yarnS: 0 };
 const sleeping = t => S.sleepAt && t > S.sleepAt;
 if (VIEW.get('eyes') === 'shut') { S.blinkUntil = 1e13; S.blinkAt = 1e14; } if (VIEW.get('eyes') === 'happy') S.happyUntil = 1e13; if (VIEW.get('coat')) setTimeout(() => setCoat(+VIEW.get('coat')), 0); if (VIEW.get('wall')) setTimeout(() => setWall(+VIEW.get('wall')), 0);   // preview switches
 let SLEEP_AFTER = VIEW.get('sleep') ? +VIEW.get('sleep') * 1000 : (options.sleepMinutes || 5) * 60000;              // falls asleep by itself after this long without keys or mouse
@@ -468,7 +505,7 @@ stageEl.appendChild(anger);
 const wake = t => { if (S.sleepAt) { S.sleepAt = 0; S.blinkUntil = t + 320; S.blinkAt = t + 620; S.wokeAt = t; S.bounceAt = t + 150; } S.lastInput = t; };
 
 function land(p, t) {
-  p.landed = true; p.landedAt = t; S.thump = 1; S.thumpSide = p.side === 'L' ? -1 : 1; S.jolt = t;
+  p.landed = true; p.landedAt = t; S.thump = 1; S.thumpSide = p.side === 'L' ? -1 : 1; S.jolt = t; if ((S.annoy || 0) > 0.6) S.bounceAt = t;   // a slam hard enough to shake the whole cat
   const k = p.pending; p.pending = null; if (!k) return;
   k.glow = 1; k.down = S.down.has(k.code); if (showKeyLabels) addChip(k); if (!k.down) { const c = S.chips[S.chips.length - 1]; if (c) setTimeout(() => c.gone = performance.now(), 160); }
 }
@@ -558,10 +595,11 @@ function frame() {
   S.wigX *= Math.exp(-dt * 5); S.wigZ *= Math.exp(-dt * 5); S.mouseLean += ((mousing ? 1 : 0) - S.mouseLean) * ease(6);
   mouseGroup.position.set(MOUSE_AT.x + (DESK_DIR > 0 ? Math.min(S.wigX, 0.05) : Math.max(S.wigX, -0.05)), 0, MOUSE_AT.z + S.wigZ); mouseBody.material.color.copy(capColor).lerp(hitColor, S.mouseDown && mouseOn ? 1 : 0);
   S.rate *= Math.exp(-dt * 1.2); const fast = clamp((S.rate - 2.4) / 5.2, 0, 1);   // 0 = unhurried typing, 1 = hammering away
-  // impatience: keep hammering long enough and the cat gets visibly fed up
-  const annoyK = S.annoyUntil && t < S.annoyUntil ? Math.min(1, Math.sin((1 - (S.annoyUntil - t) / 1600) * Math.PI) * 2) : 0;
-  if (fast > 0.55) { if (!S.annoySince) S.annoySince = t; if (t - S.annoySince > 2000 && t > S.nextAnnoy) { S.annoyUntil = t + 1600; S.nextAnnoy = t + 6000; S.annoySince = t; S.thump = Math.max(S.thump, 0.7); S.thumpSide = Math.random() < 0.5 ? -1 : 1; } }
-  else S.annoySince = 0;
+  // impatience builds up gradually while the typing stays fast and drains away slowly after; a full meter means the fur goes up
+  S.annoy = clamp(S.annoy + (fast > 0.5 ? dt * 0.26 : -dt * (typing ? 0.11 : 0.4)), 0, 1);
+  if (VIEW.has('annoy')) S.annoy = clamp(+VIEW.get('annoy') || 0, 0, 1);            // preview switch
+  const annoyK = S.annoy, puff = reduceMotion ? 0 : smooth(0.72, 1, annoyK);
+  if (annoyK > 0.98 && fast > 0.5) { S.thump = Math.max(S.thump, 0.6); S.thumpSide = Math.random() < 0.5 ? -1 : 1; }   // stomping mad
   // every so often the tail joins the typing, drumming along in rhythm
   if (typing && !asleep) { if (!S.nextTailJoin) S.nextTailJoin = t + rnd(1500, 4000); if (t > S.nextTailJoin) { S.tailBurstLen = rnd(900, 1600); S.tailBurstUntil = t + S.tailBurstLen; S.nextTailJoin = t + rnd(2800, 6200) * (fast > 0.5 ? 0.55 : 1); } }
   const bp = typing && !asleep && S.tailBurstUntil > t ? S.tailBurstLen - (S.tailBurstUntil - t) : 0;
@@ -588,9 +626,9 @@ function frame() {
   const act0 = S.act, stretching = act0 === 'stretch', licking = act0 === 'lick', yawning = act0 === 'yawn', flicking = act0 === 'tail', pouncing = act0 === 'pounce', actLeft = S.actUntil - t;
   const yawn = yawning ? Math.sin(clamp(1 - actLeft / 1900, 0, 1) * Math.PI) ** 0.7 : 0, crouch = pouncing && actLeft > 520, swat = pouncing && actLeft <= 520 && actLeft > 120;
   if (pouncing && actLeft <= 520 && !S.pounced) { S.pounced = true; S.bounceAt = t; } if (!pouncing) S.pounced = false;
-  S.loaf = 0; S.low = (S.low || 0) + ((stretching ? 1 : crouch ? 0.55 : 0) - (S.low || 0)) * ease(crouch ? 9 : 5);
-  const loaf = S.loaf, squat = 1 - 0.4 * loaf - 0.16 * S.low;       // asleep the cat settles down into a loaf; a stretch dips the chest
-  torso.scale.set(P.bodyW * (1 + 0.14 * loaf + breath * (0.012 + 0.012 * loaf) - bounce * 0.03), P.bodyH * squat * (1 + breath * 0.012 + bounce * 0.05 - S.thump * (0.012 + 0.02 * fast)), 1 + 0.1 * loaf + breath * 0.02);
+  S.loaf = (S.loaf || 0) + ((act0 === 'loaf' ? 1 : 0) - (S.loaf || 0)) * ease(3.2); S.low = (S.low || 0) + ((stretching ? 1 : crouch ? 0.55 : 0) - (S.low || 0)) * ease(crouch ? 9 : 5);
+  const loaf = S.loaf, squat = 1 - 0.4 * loaf - 0.16 * S.low;       // a loaf settles down onto the desk; a stretch dips the chest
+  torso.scale.set(P.bodyW * (1 + 0.14 * loaf + breath * (0.012 + 0.012 * loaf) - bounce * 0.03) * (1 + 0.13 * puff), P.bodyH * squat * (1 + breath * 0.012 + bounce * 0.05 - S.thump * (0.012 + 0.02 * fast)) * (1 + 0.08 * puff), (1 + 0.1 * loaf + breath * 0.02) * (1 + 0.13 * puff));   // furious: the whole body puffs up
   // The body leans toward what the paws are doing, so the arms keep their length instead of stretching.
   let farZ = 0; for (const sd of ['L', 'R']) { const q = paws[sd]; if (q.held || t - q.tapAt < 260) farZ = Math.max(farZ, q.to.z); }
   if (farZ) S.fwdGoal = clamp(0.14 + (farZ - KB.z0) * 0.32, 0.14, 0.42);
@@ -598,34 +636,34 @@ function frame() {
   S.sx += (clamp(reach * 0.13, -0.2, 0.2) - DESK_DIR * S.mouseLean * 0.24 - S.sx) * ease(9);
   const sx = S.sx + S.thump * S.thumpSide * 0.012 + (crouch ? Math.sin(t / 55) * 0.02 : 0), fwd = S.fwd;
   upper.matrix.set(1, sx, 0, 0,  0, 1 - fwd * fwd * 0.35, 0, 0,  0, fwd, 1, 0,  0, 0, 0, 1);
-  S.tailDown = (S.tailDown || 0) + ((asleep ? 1 : 0) - (S.tailDown || 0)) * ease(2.6); poseTail(S.tailDown < 0.003 ? 0 : S.tailDown > 0.997 ? 1 : S.tailDown, (flicking ? Math.sin(t / 85) * Math.sin(clamp(1 - actLeft / 1400, 0, 1) * Math.PI) : crouch ? Math.sin(t / 60) * 0.5 : 0) + tailJoin * Math.sin(t / 75) * 0.85 + annoyK * Math.sin(t / 58) * 1.1);
+  S.tailDown = (S.tailDown || 0) + ((asleep ? 1 : loaf * 0.6) - (S.tailDown || 0)) * ease(2.6); poseTail(S.tailDown < 0.003 ? 0 : S.tailDown > 0.997 ? 1 : S.tailDown, (flicking ? Math.sin(t / 85) * Math.sin(clamp(1 - actLeft / 1400, 0, 1) * Math.PI) : crouch ? Math.sin(t / 60) * 0.5 : 0) + tailJoin * Math.sin(t / 75) * 0.85 + annoyK * Math.sin(t / 58) * 1.1);
   tail.rotation.z = Math.sin(t / 900) * 0.05 * (1 - S.tailDown) + (typing ? Math.sin(t / (160 - 70 * fast)) * (0.02 + 0.07 * fast) : 0) + tailJoin * Math.sin(t / 75) * 0.05 + annoyK * Math.sin(t / 58) * 0.07;
 
   // head
   const happy = t < S.happyUntil, calm = !typing && !asleep && !happy && !mousing;
   if (S.wantStretch) { S.wantStretch = false; if (calm && !reduceMotion) { S.act = 'stretch'; S.actUntil = t + 1700; S.nextAct = t + rnd(6000, 12000); } }
-  if (calm && !reduceMotion && t > S.nextAct) { const pool = ['lookL', 'lookR', 'tilt', 'ear', 'ear', 'lick', 'lick']; S.act = pool[Math.floor(Math.random() * pool.length)]; S.actUntil = t + ({ ear: 420, lick: 3200 }[S.act] || 1700); S.nextAct = t + rnd(6000, 14000); }
+  if (calm && !reduceMotion && t > S.nextAct) { const pool = ['lookL', 'lookR', 'tilt', 'ear', 'ear', 'lick', 'lick', 'loaf', 'loaf', 'stretch', 'yarn', 'yarn']; S.act = pool[Math.floor(Math.random() * pool.length)]; S.actUntil = t + ({ ear: 420, lick: 3200, stretch: 2200, loaf: rnd(4500, 8000), yarn: rnd(6000, 9500) }[S.act] || 1700); S.nextAct = S.actUntil + rnd(5000, 12000); }
   if (S.act && (t > S.actUntil || !calm)) S.act = null;
   const looking = typing && t - S.lastKey < 1000;
   // While the real cursor is moving, the cat watches the cursor itself: direction is measured from the head's place on screen.
   const follow = mousing && S.pointer && !(demo && t < S.demoMouse); let pdx = 0, pdy = 0;
   if (follow) { proj.setFromMatrixPosition(head.matrixWorld).project(camera); pdx = S.pointer.x - proj.x; pdy = S.pointer.y + proj.y; }
-  const turnT = asleep ? 0 : follow ? clamp(pdx * 0.5, -0.4, 0.4) : mousing ? -0.36 * DESK_DIR : looking ? (S.lastSide === 'L' ? -0.3 : 0.3) : S.act === 'lookL' ? -0.45 : S.act === 'lookR' ? 0.45 : S.pointer && !typing ? clamp(S.pointer.x, -1, 1) * 0.22 : 0;
-  const nodT = asleep ? 0.5 : yawning ? -0.3 * yawn : crouch ? 0.16 : happy ? -0.12 : licking ? 0.34 + Math.sin(t / 140) * 0.09 : stretching ? -0.18 : looking ? 0.3 : follow ? clamp(pdy * 0.5, -0.28, 0.4) : mousing ? 0.22 : S.pointer && !typing ? clamp(S.pointer.y * 0.2, -0.16, 0.2) : 0, tiltT = asleep ? 0.16 : licking ? -0.12 : S.act === 'tilt' ? 0.2 : happy ? (S.petSide || -1) * 0.1 + Math.sin(t / 330) * 0.06 : 0;
+  const turnT = asleep ? 0 : follow ? clamp(pdx * 0.5, -0.4, 0.4) : mousing ? -0.36 * DESK_DIR : looking ? (S.lastSide === 'L' ? -0.3 : 0.3) : S.act === 'lookL' ? -0.45 : S.act === 'lookR' ? 0.45 : S.act === 'yarn' ? 0.32 * DESK_DIR : S.pointer && !typing ? clamp(S.pointer.x, -1, 1) * 0.22 : 0;
+  const nodT = asleep ? 0.5 : yawning ? -0.3 * yawn : crouch ? 0.16 : happy ? -0.12 : licking ? 0.34 + Math.sin(t / 140) * 0.09 : stretching ? -0.18 : S.act === 'yarn' ? 0.3 : looking ? 0.3 : follow ? clamp(pdy * 0.5, -0.28, 0.4) : mousing ? 0.22 : S.pointer && !typing ? clamp(S.pointer.y * 0.2, -0.16, 0.2) : 0, tiltT = asleep ? 0.16 : licking ? -0.12 : S.act === 'tilt' ? 0.2 : happy ? (S.petSide || -1) * 0.1 + Math.sin(t / 330) * 0.06 : 0;
   S.turn += (turnT - S.turn) * ease(7); S.nod += (nodT - S.nod) * ease(6); S.tilt += (tiltT - S.tilt) * ease(5);
   { const w = (t - (S.wokeAt || -1e9)) / 750; S.shake = w > 0.15 && w < 1 ? Math.sin(w * 26) * 0.16 * (1 - w) : 0; }
   head.rotation.set(S.nod + S.thump * (0.05 + 0.05 * fast), S.turn + S.shake + Math.sin(t / 42) * 0.035 * annoyK, S.tilt); head.position.z = 0.1 - fwd * 0.5 + 0.3 * loaf; head.position.y = (2.3 * P.bodyH + P.neck) * (1 - 0.43 * loaf - 0.16 * S.low) + breath * 0.018 + bounce * 0.09 - (asleep ? 0.14 : 0) - S.thump * 0.02;
   { const py = head.position.y; headFix.matrix.set(1, -sx, 0, sx * py,  0, 1, 0, 0,  0, -fwd, 1, fwd * py,  0, 0, 0, 1); }
   const flick = S.act === 'ear' ? Math.sin((S.actUntil - t) / 420 * Math.PI * 2) * 0.28 : 0;
-  { const relax = S.lidDir < 0 ? 0.2 * smooth(0.5, 1, S.lid) : 0; ears[0].rotation.z = 0.24 + relax + flick; ears[1].rotation.z = -0.24 - relax - flick * 0.5; ears[0].rotation.x = ears[1].rotation.x = -0.32 * fast - 0.30 * annoyK; }
+  { const relax = S.lidDir < 0 ? 0.2 * smooth(0.5, 1, S.lid) : 0; ears[0].rotation.z = 0.24 + relax + flick; ears[1].rotation.z = -0.24 - relax - flick * 0.5; ears[0].rotation.x = ears[1].rotation.x = -0.32 * fast - 0.42 * annoyK; }
 
   // eyes
   if (t > S.blinkAt) { S.blinkUntil = t + 130; S.blinkAt = t + rnd(2600, 5600); }
   S.lidDir = 1;                      // happy: lower lid rises into an arch; blink and sleep: upper lid comes down
   const lidT = asleep || t < S.blinkUntil || happy || licking || stretching || yawn > 0.25 ? 1 : 0; S.lid += (lidT - S.lid) * (1 - Math.exp(-realDt * (lidT > S.lid ? 34 : 16)));   // eyelids keep real time even if frames are dropped
-  const gx = follow ? clamp(pdx * 2.2, -1, 1) : mousing ? -0.8 * DESK_DIR : looking ? (S.lastSide === 'L' ? -0.5 : 0.5) : S.pointer ? clamp(S.pointer.x * 1.2, -1, 1) : 0, gy = follow ? clamp(pdy * 2.2, -1, 1) : looking || mousing ? 1 : S.pointer ? clamp(S.pointer.y * 1.3, -1, 1) : 0;
+  const gx = follow ? clamp(pdx * 2.2, -1, 1) : mousing ? -0.8 * DESK_DIR : looking ? (S.lastSide === 'L' ? -0.5 : 0.5) : S.act === 'yarn' ? 0.75 * DESK_DIR : S.pointer ? clamp(S.pointer.x * 1.2, -1, 1) : 0, gy = follow ? clamp(pdy * 2.2, -1, 1) : looking || mousing ? 1 : S.act === 'yarn' ? 0.85 : S.pointer ? clamp(S.pointer.y * 1.3, -1, 1) : 0;
   S.gazeX += (gx - S.gazeX) * ease(9); S.gazeY += (gy - S.gazeY) * ease(9);
-  const widen = (looking ? 1.25 : pouncing ? 1.9 : 1) * (1 - 0.3 * fast);
+  const widen = (looking ? 1.25 : pouncing ? 1.9 : 1) * (1 - 0.3 * fast) * (1 + 0.3 * puff);
   const ex = 0.37 * P.eyeSpread, ey = P.eyeY, er = 0.205 * P.eyeSize, iry = er * 0.74, c = S.lid, dir = S.lidDir || 1;
   for (const e of eyes) {                                           // the eye keeps its shape; a fur-coloured lid slides over it and leaves a soft crescent
     // Closing: the eye squashes flat, then becomes one clean curved line (down-curve for a blink or sleep, arch when happy).
@@ -642,18 +680,34 @@ function frame() {
     e.blush.visible = joy > 0.02; if (e.blush.visible) fillPatch(e.blush, e.s * ex * 1.42, ey - er * 1.3, er * 0.46 * joy, er * 0.25 * joy, 0, 0.007);
   }
 
+  // yarn ball: swells in while the cat plays, shrinks away afterwards
+  const yarnOn = act0 === 'yarn' && !asleep;
+  S.yarnS += ((yarnOn ? 1 : 0) - S.yarnS) * ease(5);
+  yarn.visible = S.yarnS > 0.03;
+  if (yarn.visible) {
+    yarnHome.x = DESK_DIR * 0.78;
+    yarn.position.set(yarnHome.x + Math.sin(t / 700) * 0.05 * yarnOn, yarnHome.y - 0.14 * (1 - S.yarnS), yarnHome.z + Math.cos(t / 900) * 0.04 * yarnOn);
+    const kb = t - yarnKick;
+    if (yarnOn && kb < 300) yarn.position.y += Math.sin(kb / 300 * Math.PI) * 0.07;
+    yarnSpin.rotation.y += dt * (2.4 + (kb < 320 ? 10 : 0));
+    yarn.rotation.z = Math.sin(t / 260) * 0.09 * yarnOn;
+    yarn.scale.setScalar(Math.max(0.02, S.yarnS));
+  }
+
   // paws
   for (const side of ['L', 'R']) {
     const p = paws[side], since = t - p.tapAt;
     if (since < STRIKE) {
+      const amp = 1 + 0.9 * annoyK;                      // the angrier the cat, the bigger the wind-up and the harder the slam
       const k = 1 - Math.pow(1 - Math.min(1, since / 60), 3); p.pos.lerpVectors(p.from, p.to, k);
-      p.pos.y = since < RISE ? mix(p.from.y, Math.max(p.from.y, p.to.y + 0.7), since / RISE) : mix(Math.max(p.from.y, p.to.y + 0.7), p.to.y - 0.03, Math.pow((since - RISE) / FALL, 2));
+      p.pos.y = since < RISE ? mix(p.from.y, Math.max(p.from.y, p.to.y + 0.7 * amp), since / RISE) : mix(Math.max(p.from.y, p.to.y + 0.7 * amp), p.to.y - 0.03 - 0.06 * annoyK, Math.pow((since - RISE) / FALL, 2));
     } else {
       if (!p.landed) land(p, t);
       if (p.held) { p.pos.x += (p.to.x - p.pos.x) * ease(30); p.pos.z += (p.to.z - p.pos.z) * ease(30); p.pos.y += (p.to.y - 0.04 - p.pos.y) * ease(30); }
       else if (side === MOUSE_PAW && mouseOn && since > STRIKE + 110) { p.mode = 'mouse'; tmpGoal.copy(mouseGroup.position); tmpGoal.y = 0.3 - (S.mouseDown ? 0.05 : 0); tmpGoal.z += 0.02; p.pos.lerp(tmpGoal, ease(16)); }
       else if (licking && side === 'R' && since > STRIKE + 110) { p.mode = 'lick'; head.getWorldPosition(tmpGoal); tmpGoal.x += 0.06; tmpGoal.y += -0.5 * P.headSize - Math.sin(t / 140) * 0.06; tmpGoal.z += 0.66 * P.headSize; p.pos.lerp(tmpGoal, ease(12)); }
       else if (swat && side === (S.pointer && S.pointer.x > 0 ? 'R' : 'L') && since > STRIKE + 110) { p.mode = 'swat'; tmpGoal.set((side === 'L' ? -1 : 1) * 0.62, 1.25, 1.05); p.pos.lerp(tmpGoal, ease(26)); }
+      else if (yarnOn && side === (DESK_DIR > 0 ? 'R' : 'L') && since > STRIKE + 110) { p.mode = 'yarn'; const bob = Math.max(0, Math.sin(t / 310)); tmpGoal.set(yarn.position.x + Math.sin(t / 620) * 0.1, 0.14 + bob * 0.26, yarn.position.z + 0.03); p.pos.lerp(tmpGoal, ease(13)); if (bob < 0.08 && p.pos.distanceTo(yarn.position) < 0.34 && t - yarnKick > 600) yarnKick = t; }
       else if ((stretching || loaf > 0.05) && since > STRIKE + 110) { p.mode = 'rest'; tmpGoal.copy(REST[side]); tmpGoal.z += stretching ? 0.85 : 0.2 * loaf; p.pos.lerp(tmpGoal, ease(8)); }
       else if (since > STRIKE + 110) { p.mode = hover ? 'up' : 'rest'; const goal = hover ? tmpGoal.copy(UP[side]) : REST[side]; if (hover) goal.z += fwd * 0.6; p.pos.lerp(goal, ease(hover ? 20 : 9)); if (hover) p.pos.y += Math.sin(t / 240 + (side === 'L' ? 0 : 1.8)) * 0.004; }
     }
@@ -661,14 +715,18 @@ function frame() {
   }
 
   updateHind(t);
+  drawHindLeg(0); drawHindLeg(1);
+  puffSpikes.visible = puff > 0.02;
+  if (puffSpikes.visible) puffSpikes.children.forEach(sp => sp.scale.setScalar(sp.userData.s * (0.2 + 0.8 * puff)));
+  if (Math.abs(puff - tailPuff) > 0.02) { tailPuff = puff; buildTail(P.tailThick * (1 + 0.55 * puff)); }
 
   renderer.render(scene, camera);
   // labels above the keys that were hit
   tongue.visible = licking && paws.R.mode === 'lick'; if (tongue.visible) { const k = Math.sin(t / 140); tongue.position.y = -0.38 - 0.05 * k; tongue.scale.set(0.06, 0.085 + 0.03 * k, 0.04); }
   mouth.visible = yawn > 0.04; if (mouth.visible) fillPatch(mouth, 0, -0.29 - 0.05 * yawn, 0.03 + 0.085 * yawn, 0.01 + 0.14 * yawn, 0, 0.012);
   zzz.style.display = asleep ? 'block' : 'none';
-  anger.style.display = annoyK > 0.05 ? 'block' : 'none';
-  if (annoyK > 0.05) { anger.style.fontSize = (w * 0.055) + 'px'; head.getWorldPosition(proj); proj.x += 0.02; proj.y += 0.55; proj.project(camera); anger.style.left = ((proj.x + 1) / 2 * w) + 'px'; anger.style.top = ((1 - proj.y) / 2 * h) + 'px'; anger.style.opacity = String(Math.min(1, annoyK * 1.4)); anger.style.transform = `translate(-50%,-90%) scale(${1 + 0.18 * Math.sin(t / 90)}) rotate(${Math.sin(t / 140) * 14}deg)`; }
+  anger.style.display = annoyK > 0.12 ? 'block' : 'none';
+  if (annoyK > 0.12) { anger.style.fontSize = (w * (0.038 + 0.034 * annoyK)) + 'px'; head.getWorldPosition(proj); proj.x += 0.02; proj.y += 0.55 + 0.12 * puff; proj.project(camera); anger.style.left = ((proj.x + 1) / 2 * w) + 'px'; anger.style.top = ((1 - proj.y) / 2 * h) + 'px'; anger.style.opacity = String(Math.min(1, annoyK * 1.5)); anger.style.transform = `translate(-50%,-90%) scale(${(1 + 0.18 * Math.sin(t / 90)) * (1 + 0.45 * puff)}) rotate(${Math.sin(t / 140) * (12 + 16 * annoyK)}deg)`; }
   if (asleep) { head.getWorldPosition(proj); proj.x += 0.5; proj.y += 0.5; proj.project(camera); zzz.style.left = ((proj.x + 1) / 2 * w) + 'px'; zzz.style.top = ((1 - proj.y) / 2 * h) + 'px'; }
   S.chips = S.chips.filter(c => { const out = c.gone ? (t - c.gone) / 240 : 0; if (out >= 1) { c.el.remove(); return false; }
     proj.set(c.k.x, 0.75, c.k.z).project(camera); c.el.style.left = ((proj.x + 1) / 2 * w) + 'px'; c.el.style.top = ((1 - proj.y) / 2 * h - out * 8) + 'px'; c.el.style.opacity = String(Math.min(1, (t - c.born) / 80) * (1 - out)); return true; });

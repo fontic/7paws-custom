@@ -19,7 +19,7 @@ pub const BASE_HEIGHT: f64 = 480.0;
 pub const BASE_WIDTH_104: f64 = 740.0;
 pub const BASE_HEIGHT_104: f64 = 520.0;
 pub const SETTINGS_WIDTH: f64 = 244.0;
-pub const SETTINGS_HEIGHT: f64 = 516.0;
+pub const SETTINGS_HEIGHT: f64 = 572.0;
 
 pub struct AppState {
     settings: Arc<Mutex<AppSettings>>,
@@ -424,6 +424,10 @@ pub(crate) fn show_settings_window(app: &AppHandle) {
 
 fn show_settings_window_blocking(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("settings") {
+        // Re-assert the logical size while visible: a webview created hidden can
+        // keep a stale viewport on Windows until the next resize event, which used
+        // to leave the bottom of the menu (quit button) outside the window.
+        let _ = win.set_size(Size::Logical(LogicalSize::new(SETTINGS_WIDTH, SETTINGS_HEIGHT)));
         place_settings_window(app, &win);
         let _ = win.show();
         let _ = win.set_focus();
@@ -449,8 +453,9 @@ fn show_settings_window_blocking(app: &AppHandle) {
     .build();
     match built {
         Ok(win) => {
-            place_settings_window(app, &win);
             let _ = win.show();
+            let _ = win.set_size(Size::Logical(LogicalSize::new(SETTINGS_WIDTH, SETTINGS_HEIGHT)));
+            place_settings_window(app, &win);
             let _ = win.set_focus();
         }
         Err(e) => eprintln!("failed to open settings window: {e}"),
