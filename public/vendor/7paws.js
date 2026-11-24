@@ -425,12 +425,12 @@ function drawHindLeg(i) {
 
 /* ---------- puff-up fur, Tom-and-Jerry style: a starburst of stiff tufts PINNED to every moving part ---------- */
 // Each set hangs off the part it decorates (torso / head / tail), so the tufts lean, breathe, bob and swing with it.
-const spikeGeo = new THREE.ConeGeometry(1, 1, 4);              // a 4-sided pyramid: jagged like hand-drawn fur
+const spikeGeo = new THREE.LatheGeometry([[0, 0], [0.6, 0.02], [0.95, 0.15], [1, 0.32], [0.86, 0.54], [0.56, 0.76], [0.26, 0.91], [0.2, 0.97], [0, 1]].map(p => new THREE.Vector2(p[0], p[1])), 7);   // a soft teardrop tuft: wide base, rounded tip — T&J fluff, not needles
 const mkSpikes = parent => { const g = new THREE.Group(); parent.add(g); g.visible = false; return g; };
 const torsoSpikes = mkSpikes(torso), headSpikes = mkSpikes(head), tailSpikes = mkSpikes(tail);
 const YAX = V(0, 1, 0);
 const addSpike = (set, pos, dir, len, r, stag) => { const sp = new THREE.Mesh(spikeGeo, M.fur);
-  sp.position.copy(pos).addScaledVector(dir, len * 0.34);       // base buried in the coat, tip standing free
+  sp.position.copy(pos).addScaledVector(dir, len * -0.08);      // base well inside the body, bulge and tip show outside
   sp.quaternion.setFromUnitVectors(YAX, dir); sp.userData = { r, len, stag }; set.add(sp); return sp; };
 { // the trunk: rings of tufts around the whole silhouette, alternating long and short
   let i = 0;
@@ -438,32 +438,29 @@ const addSpike = (set, pos, dir, len, r, stag) => { const sp = new THREE.Mesh(sp
     const rx = halfW(y) * 1.04, rz = Math.max(0.3, halfD(y)) * 1.04, cx = Math.cos(phi), szz = Math.sin(phi);
     const dir = V(cx / rx, y > 1.05 ? 0.26 : 0.08, szz / rz - (szz < 0 ? 0.22 : 0)).normalize();
     const v = 0.88 + 0.24 * ((i * 37) % 7) / 6, long = i % 2 === 0;
-    addSpike(torsoSpikes, V(cx * rx, y, midZ(y) + szz * rz), dir, (long ? 0.52 : 0.3) * v, (long ? 0.075 : 0.056) * v, long ? 0 : 0.45); i++;
+    addSpike(torsoSpikes, V(cx * rx, y, midZ(y) + szz * rz), dir, (long ? 0.4 : 0.24) * v, (long ? 0.15 : 0.11) * v, long ? 0 : 0.45); i++;
   };
-  [[0.3, [0.22, Math.PI - 0.22, Math.PI * 1.5 - 0.5, Math.PI * 1.5 + 0.5]],
-   [0.65, [0, Math.PI, Math.PI / 2 - 0.4, Math.PI / 2 + 0.4, Math.PI * 1.5 - 0.35, Math.PI * 1.5 + 0.35]],
-   [1.05, [0, Math.PI, Math.PI / 2 + 0.6, Math.PI * 1.5 - 0.5, Math.PI * 1.5 + 0.5]],
-   [1.45, [0.15, Math.PI - 0.15, Math.PI * 1.5 - 0.7, Math.PI * 1.5 + 0.7]],
-   [1.8, [0, Math.PI, Math.PI * 1.5]]].forEach(([y, as]) => as.forEach(a => put(y, a)));
+  // eight tufts per ring, adjacent rings staggered half a step, so the rim reads as one continuous jagged fluff
+  [[0.45, 0], [0.68, 0.39], [0.95, 0], [1.28, 0.39], [1.6, 0], [1.85, 0.39]].forEach(([y, off]) => { for (let j = 0; j < 8; j++) put(y, off + j * Math.PI / 4); });
   // a pair of tufts standing straight up off the shoulders, so the top edge bristles too
   [[-1, 1.9], [1, 1.9]].forEach(([sx, y], i) => {
     const dir = V(sx * 0.25, 1, -0.12).normalize();
-    addSpike(torsoSpikes, V(sx * halfW(y) * 0.62, y, midZ(y) + 0.05), dir, 0.42, 0.07, i ? 0.45 : 0);
+    addSpike(torsoSpikes, V(sx * halfW(y) * 0.62, y, midZ(y) + 0.05), dir, 0.34, 0.15, i ? 0.45 : 0);
   });
 }
 { // the head: a crown and ruff of tufts, kept clear of the ears, eyes and whiskers
   let i = 0;
-  [[0, 1, -0.2], [0.42, 0.86, -0.42], [-0.42, 0.86, -0.42], [0.2, 0.98, -0.55], [-0.2, 0.98, -0.55], [0.62, 0.72, -0.5], [-0.62, 0.72, -0.5], [1, 0.3, -0.25], [-1, 0.3, -0.25], [0.55, 0.08, -0.9], [-0.55, 0.08, -0.9], [0, 0.5, -1], [0.92, -0.32, 0.05], [-0.92, -0.32, 0.05]].forEach(([x, y, z]) => {
+  [[0, 1, -0.2], [0.42, 0.86, -0.42], [-0.42, 0.86, -0.42], [0.2, 0.98, -0.55], [-0.2, 0.98, -0.55], [0.62, 0.95, -0.15], [-0.62, 0.95, -0.15], [0.62, 0.72, -0.5], [-0.62, 0.72, -0.5], [1, 0.3, -0.25], [-1, 0.3, -0.25], [0.55, 0.08, -0.9], [-0.55, 0.08, -0.9], [0, 0.5, -1], [0.92, -0.32, 0.05], [-0.92, -0.32, 0.05]].forEach(([x, y, z]) => {
     const k = 1 / Math.sqrt((x / HEAD_R[0]) ** 2 + (y / HEAD_R[1]) ** 2 + (z / HEAD_R[2]) ** 2);
     const dir = V(x / HEAD_R[0] ** 2, y / HEAD_R[1] ** 2 + (y > 0.4 ? 0.5 : 0.15), z / HEAD_R[2] ** 2).normalize();
     const long = i % 2 === 0;
-    addSpike(headSpikes, V(x * k, y * k, z * k), dir, (long ? 0.44 : 0.3) * (0.9 + 0.2 * ((i * 29) % 5) / 4), long ? 0.06 : 0.046, long ? 0 : 0.45); i++;
+    addSpike(headSpikes, V(x * k, y * k, z * k), dir, (long ? 0.34 : 0.24) * (0.9 + 0.2 * ((i * 29) % 5) / 4), long ? 0.12 : 0.095, long ? 0 : 0.45); i++;
   });
 }
 const tsP = V(0, 0, 0), tsT = V(0, 0, 0), tsD = V(0, 0, 0), tsPerp = V(0, 0, 0);
 { let i = 0; while (i < 16) { const long = i % 2 === 0, v = 0.9 + 0.2 * ((i * 31) % 5) / 4;
     const sp = new THREE.Mesh(spikeGeo, M.fur);
-    sp.userData = { r: (long ? 0.065 : 0.05) * v, len: (long ? 0.52 : 0.34) * v, stag: long ? 0 : 0.45, side: i % 2 ? 1 : -1, up: i % 3 === 0 ? 0.55 : 0.15 };
+    sp.userData = { r: (long ? 0.145 : 0.105) * v, len: (long ? 0.4 : 0.26) * v, stag: long ? 0 : 0.45, side: i % 2 ? 1 : -1, up: i % 3 === 0 ? 0.55 : 0.15 };
     tailSpikes.add(sp); i++; }
 }
 function poseTailSpikes() {                     // the tail curve moves every frame, so its tufts ride along
@@ -474,7 +471,7 @@ function poseTailSpikes() {                     // the tail curve moves every fr
     tsPerp.set(tsT.y, -tsT.x, 0).normalize();   // perpendicular in the screen plane, so the brush reads from the camera
     tsD.copy(tsPerp).multiplyScalar(u.side); tsD.y = tsD.y * 0.3 + u.up; tsD.normalize();
     const rad = 0.16 * TAIL_K * (1 + 0.7 * (1 - smooth(0, 0.16, uu)) ** 2);   // the tail's own radius, puff included in TAIL_K
-    sp.position.copy(tsP).addScaledVector(tsD, rad + u.len * 0.24);
+    sp.position.copy(tsP).addScaledVector(tsD, rad - u.len * 0.1);
     sp.quaternion.setFromUnitVectors(YAX, tsD);
   });
 }
@@ -553,7 +550,7 @@ stageEl.appendChild(anger);
 const wake = t => { if (S.sleepAt) { S.sleepAt = 0; S.blinkUntil = t + 320; S.blinkAt = t + 620; S.wokeAt = t; S.bounceAt = t + 150; } S.lastInput = t; };
 
 function land(p, t) {
-  p.landed = true; p.landedAt = t; S.thump = 1; S.thumpSide = p.side === 'L' ? -1 : 1; S.jolt = t; if ((S.annoy || 0) > 0.6) S.bounceAt = t;   // a slam hard enough to shake the whole cat
+  p.landed = true; p.landedAt = t; S.thump = 1; S.thumpSide = p.side === 'L' ? -1 : 1; S.jolt = t; if ((S.annoy || 0) > 0.5) S.bounceAt = t;   // a slam hard enough to shake the whole cat
   const k = p.pending; p.pending = null; if (!k) return;
   k.glow = 1; k.down = S.down.has(k.code); if (showKeyLabels) addChip(k); if (!k.down) { const c = S.chips[S.chips.length - 1]; if (c) setTimeout(() => c.gone = performance.now(), 160); }
 }
@@ -749,6 +746,10 @@ function frame() {
       const amp = 1 + 0.9 * annoyK;                      // the angrier the cat, the bigger the wind-up and the harder the slam
       const k = 1 - Math.pow(1 - Math.min(1, since / 60), 3); p.pos.lerpVectors(p.from, p.to, k);
       p.pos.y = since < RISE ? mix(p.from.y, Math.max(p.from.y, p.to.y + 0.7 * amp), since / RISE) : mix(Math.max(p.from.y, p.to.y + 0.7 * amp), p.to.y - 0.03 - 0.06 * annoyK, Math.pow((since - RISE) / FALL, 2));
+      if (annoyK > 0.3) {                                // furious: the paw swings in from the side and slaps, palm flat
+        p.pos.x += (p.side === 'L' ? -1 : 1) * 0.34 * annoyK * Math.sin(Math.min(1, since / STRIKE) * Math.PI);
+        p.foot.rotation.x = (since < RISE ? -0.5 : mix(-0.5, 0.32, Math.min(1, (since - RISE) / FALL))) * annoyK;
+      }
     } else {
       if (!p.landed) land(p, t);
       if (p.held) { p.pos.x += (p.to.x - p.pos.x) * ease(30); p.pos.z += (p.to.z - p.pos.z) * ease(30); p.pos.y += (p.to.y - 0.04 - p.pos.y) * ease(30); }
@@ -759,6 +760,9 @@ function frame() {
       else if ((stretching || loaf > 0.05) && since > STRIKE + 110) { p.mode = 'rest'; tmpGoal.copy(REST[side]); tmpGoal.z += stretching ? 0.85 : 0.2 * loaf; p.pos.lerp(tmpGoal, ease(8)); }
       else if (since > STRIKE + 110) { p.mode = hover ? 'up' : 'rest'; const goal = hover ? tmpGoal.copy(UP[side]) : REST[side]; if (hover) goal.z += fwd * 0.6; p.pos.lerp(goal, ease(hover ? 20 : 9)); if (hover) p.pos.y += Math.sin(t / 240 + (side === 'L' ? 0 : 1.8)) * 0.004; }
     }
+    const sq = annoyK > 0.45 && p.landed ? Math.max(0, 1 - (t - p.landedAt) / 110) : 0;   // the palm squashes flat onto the key and springs back
+    p.foot.scale.set(1 + 0.24 * sq, 1 - 0.44 * sq, 1 + 0.24 * sq);
+    if (since >= STRIKE) p.foot.rotation.x *= Math.max(0, 1 - (t - p.landedAt) / 130);    // the palm relaxes after the slap
     shoulderW.copy(SHOULDER[side]); shoulderW.x += sx * shoulderW.y; shoulderW.z += fwd * shoulderW.y; shoulderW.y = shoulderW.y * (1 - fwd * fwd * 0.35) * squat + breath * 0.02 + bounce * 0.06; drawLimb(p, shoulderW);
   }
 
