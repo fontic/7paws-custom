@@ -1979,6 +1979,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutually_exclusive_features"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e94e1e6445d314f972ff7395df2de295fe51b71821694f0b0e1e79c4f12c8577"
+
+[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2245,6 +2251,67 @@ dependencies = [
  "objc2-app-kit",
  "objc2-core-foundation",
  "objc2-foundation",
+]
+
+[[package]]
+name = "oldwin"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8707a1283b2fe791fee93ae129255a717eb327550d13c1f250e85e8f20db00a9"
+
+[[package]]
+name = "oldwin-platform-vc-ltl5-x86-win7"
+version = "0.2.1+5.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b303d520c041e6c45d748abb21441fa733918d134f31ddc4859ffcd9a262576"
+
+[[package]]
+name = "oldwin-platform-vc-ltl5-x86_64-win7"
+version = "0.2.1+5.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49fbb655d0b82a30e5f79aa9713dceef00b7b54ec7910a1f23cb8f2dde428595"
+
+[[package]]
+name = "oldwin-platform-yy-thunks-x86-win7"
+version = "0.2.1+1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f3b1f626254d98b83a2ef1d2b2e9282d03d01a552cb3caf9918367c1e12bbfb"
+
+[[package]]
+name = "oldwin-platform-yy-thunks-x86_64-win7"
+version = "0.2.1+1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "207f8681ace928fbbd03416efeddb99255bbbc842e00136c92a59beb70123d1d"
+
+[[package]]
+name = "oldwin-targets"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ac805d2b0eb3c15dd091695d5a3ffc1c44fd7906473715587239881472c15c0"
+dependencies = [
+ "mutually_exclusive_features",
+ "oldwin-vc-ltl5",
+ "oldwin-yy-thunks",
+]
+
+[[package]]
+name = "oldwin-vc-ltl5"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e728971218d4a56098d2dfe5797cc11b5008edc8d5c2d0e8a57e4507f691d1f0"
+dependencies = [
+ "oldwin-platform-vc-ltl5-x86-win7",
+ "oldwin-platform-vc-ltl5-x86_64-win7",
+]
+
+[[package]]
+name = "oldwin-yy-thunks"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eabcbec0db5c758b063cdfce27fe050f2c67c0dfc415a2bdc4899d6e7810bfa5"
+dependencies = [
+ "oldwin-platform-yy-thunks-x86-win7",
+ "oldwin-platform-yy-thunks-x86_64-win7",
 ]
 
 [[package]]
@@ -3003,10 +3070,13 @@ dependencies = [
 
 [[package]]
 name = "seven-paws"
-version = "0.1.3"
+version = "0.3.0"
 dependencies = [
+ "cc",
  "core-foundation",
  "core-graphics",
+ "oldwin",
+ "oldwin-targets",
  "serde",
  "serde_json",
  "tauri",

@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -28,6 +30,9 @@ pub enum CatInput {
     MouseMoved {
         nx: f64,
         ny: f64,
+    },
+    MouseWheel {
+        delta: i32,
     },
     PrivacyTap {
         side: String,
@@ -54,6 +59,7 @@ enum RawHookMsg {
     MouseDown(&'static str),
     MouseUp(&'static str),
     MouseMoved { x: i32, y: i32 },
+    MouseWheel { delta: i32 },
 }
 
 static HOOK_TX: OnceLock<mpsc::Sender<RawHookMsg>> = OnceLock::new();
@@ -115,6 +121,7 @@ pub fn start_global_hooks(app: AppHandle, settings: Arc<Mutex<AppSettings>>) {
         let mut pressed = [false; 1024];
         let mut pressed_at: [Instant; 1024] = [Instant::now(); 1024];
         let mut last_mouse_emit = Instant::now() - Duration::from_secs(1);
+        let mut last_wheel_emit = Instant::now() - Duration::from_secs(1);
 
         while let Ok(msg) = rx.recv() {
             match msg {
@@ -212,6 +219,13 @@ pub fn start_global_hooks(app: AppHandle, settings: Arc<Mutex<AppSettings>>) {
                         let _ = app.emit("cat-input", CatInput::MouseMoved { nx, ny });
                     }
                 }
+                RawHookMsg::MouseWheel { delta } => {
+                    let now = Instant::now();
+                    if now.duration_since(last_wheel_emit) >= Duration::from_millis(24) {
+                        last_wheel_emit = now;
+                        let _ = app.emit("cat-input", CatInput::MouseWheel { delta });
+                    }
+                }
             }
         }
     });
@@ -224,12 +238,10 @@ pub fn start_global_hooks(app: AppHandle, settings: Arc<Mutex<AppSettings>>) {
 
 #[cfg(windows)]
 fn normalize_window_point(app: &AppHandle, x: i32, y: i32) -> (f64, f64) {
-    if let Some(win) = app.get_webview_window("main") {
-        if let (Ok(pos), Ok(size)) = (win.outer_position(), win.outer_size()) {
-            let w = size.width.max(1) as f64;
-            let h = size.height.max(1) as f64;
-            return ((x - pos.x) as f64 / w, (y - pos.y) as f64 / h);
-        }
+    if let Some((px, py, width, height)) = crate::main_window_rect(app) {
+        let w = width.max(1) as f64;
+        let h = height.max(1) as f64;
+        return ((x - px) as f64 / w, (y - py) as f64 / h);
     }
     (0.5, 0.5)
 }
@@ -293,7 +305,7 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: usize, lparam: i
 unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-        WM_MBUTTONUP, WM_MOUSEMOVE, WM_RBUTTONDOWN, WM_RBUTTONUP,
+        WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
     };
 
     if code >= 0 {
@@ -324,6 +336,12 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
                 }
                 WM_MBUTTONUP => {
                     let _ = tx.send(RawHookMsg::MouseUp("middle"));
+                }
+                WM_MOUSEWHEEL => {
+                    let delta = ((ms.mouseData >> 16) as u16 as i16) as i32;
+                    if delta != 0 {
+                        let _ = tx.send(RawHookMsg::MouseWheel { delta });
+                    }
                 }
                 _ => {}
             }
@@ -503,6 +521,13 @@ fn forward_macos_event(
                 RawHookMsg::MouseUp(name)
             });
         }
+        CGEventType::ScrollWheel => {
+            let delta =
+                event.get_integer_value_field(EventField::SCROLL_WHEEL_EVENT_DELTA_AXIS_1) as i32;
+            if delta != 0 {
+                let _ = tx.send(RawHookMsg::MouseWheel { delta });
+            }
+        }
         _ => {}
     }
 }
@@ -529,6 +554,7 @@ fn run_macos_hook_loop(app: AppHandle) {
         CGEventType::RightMouseUp,
         CGEventType::OtherMouseDown,
         CGEventType::OtherMouseUp,
+        CGEventType::ScrollWheel,
     ];
 
     let mut last_reported: Option<bool> = None;

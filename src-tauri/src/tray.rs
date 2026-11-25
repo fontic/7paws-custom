@@ -6,26 +6,18 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 fn toggle_window(app: &AppHandle) -> bool {
-    let Some(win) = app.get_webview_window("main") else {
-        return false;
-    };
-    if win.is_visible().unwrap_or(true) {
-        let _ = win.hide();
+    let visible = !crate::main_window_is_visible(app);
+    crate::set_main_window_visible(app, visible);
+    if !visible {
         if let Some(settings) = app.get_webview_window("settings") {
             let _ = settings.hide();
         }
-        false
-    } else {
-        let _ = win.show();
-        true
     }
+    visible
 }
 
 pub fn setup_tray(app: &AppHandle, settings: Arc<Mutex<AppSettings>>) -> tauri::Result<()> {
-    let initial_visible = app
-        .get_webview_window("main")
-        .map(|win| win.is_visible().unwrap_or(true))
-        .unwrap_or(true);
+    let initial_visible = crate::main_window_is_visible(app);
     let show_pet = CheckMenuItem::with_id(
         app,
         "toggle_show",
@@ -34,10 +26,10 @@ pub fn setup_tray(app: &AppHandle, settings: Arc<Mutex<AppSettings>>) -> tauri::
         initial_visible,
         None::<&str>,
     )?;
-    let initial_locked = settings
+    let (initial_locked, initial_show_tray) = settings
         .lock()
-        .map(|s| s.click_through_locked)
-        .unwrap_or(false);
+        .map(|s| (s.click_through_locked, s.show_tray_icon))
+        .unwrap_or((false, true));
     let lock_through = CheckMenuItem::with_id(
         app,
         "toggle_lock_through",
@@ -53,10 +45,14 @@ pub fn setup_tray(app: &AppHandle, settings: Arc<Mutex<AppSettings>>) -> tauri::
     let menu = Menu::with_items(app, &[&show_pet, &lock_through, &open_menu, &sep, &quit])?;
     let icon = Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?;
 
+    let sync_app = app.clone();
     let sync_lock = lock_through.clone();
     app.listen("cat-settings", move |event| {
         if let Ok(s) = serde_json::from_str::<AppSettings>(event.payload()) {
             let _ = sync_lock.set_checked(s.click_through_locked);
+            if let Some(tray) = sync_app.tray_by_id("cat-tray") {
+                let _ = tray.set_visible(s.show_tray_icon);
+            }
         }
     });
 
@@ -64,7 +60,7 @@ pub fn setup_tray(app: &AppHandle, settings: Arc<Mutex<AppSettings>>) -> tauri::
     let event_lock = lock_through.clone();
     let icon_show = show_pet.clone();
     let event_show = show_pet.clone();
-    TrayIconBuilder::with_id("cat-tray")
+    let tray = TrayIconBuilder::with_id("cat-tray")
         .icon(icon)
         .tooltip("7paws")
         .menu(&menu)
@@ -100,6 +96,10 @@ pub fn setup_tray(app: &AppHandle, settings: Arc<Mutex<AppSettings>>) -> tauri::
             _ => {}
         })
         .build(app)?;
+
+    if !initial_show_tray {
+        let _ = tray.set_visible(false);
+    }
 
     Ok(())
 }

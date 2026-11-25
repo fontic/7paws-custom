@@ -1,4 +1,4 @@
-export type CoatPattern = "solid" | "tabby" | "calico";
+export type CoatPattern = "solid" | "tabby" | "calico" | "point";
 
 export interface Coat {
   id: string;
@@ -120,6 +120,21 @@ export const COATS: Coat[] = [
     pattern: "solid",
     muzzle: "#cdd5da",
     blush: "#e3a9a4",
+  },
+  {
+    id: "siamese",
+    name: "暹罗猫",
+    fur: "#f4ead9",
+    paw: "#4a352b",
+    inner: "#7d5e52",
+    eye: "#5c8fbe",
+    pupil: "#0e1113",
+    whisker: "#fbf6ea",
+    outline: "#b5b1a2",
+    line: "#6b5548",
+    sock: 0.3,
+    pattern: "point",
+    tail: "#4a352b",
   },
 ];
 
