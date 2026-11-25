@@ -643,7 +643,7 @@ function frame() {
   // impatience builds up gradually while the typing stays fast and drains away slowly after; a full meter means the fur goes up
   S.annoy = clamp(S.annoy + (fast > 0.5 ? dt * 0.26 : -dt * (typing ? 0.11 : 0.4)), 0, 1);
   if (VIEW.has('annoy')) S.annoy = clamp(+VIEW.get('annoy') || 0, 0, 1);            // preview switch
-  const annoyK = S.annoy, puff = reduceMotion ? 0 : smooth(0.72, 1, annoyK);
+  const annoyK = S.annoy; const puff = 0;            // fur-puff effect disabled: rage now shows only as the anger mark, flat ears, fury tail-shake and paw-slapping
   if (annoyK > 0.98 && fast > 0.5) { S.thump = Math.max(S.thump, 0.6); S.thumpSide = Math.random() < 0.5 ? -1 : 1; }   // stomping mad
   // every so often the tail joins the typing, drumming along in rhythm
   if (typing && !asleep) { if (!S.nextTailJoin) S.nextTailJoin = t + rnd(1500, 4000); if (t > S.nextTailJoin) { S.tailBurstLen = rnd(900, 1600); S.tailBurstUntil = t + S.tailBurstLen; S.nextTailJoin = t + rnd(2800, 6200) * (fast > 0.5 ? 0.55 : 1); } }
